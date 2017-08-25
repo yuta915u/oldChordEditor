@@ -42,9 +42,8 @@ public class SongList extends AppCompatActivity {
     }
 
 
-
     //新規作成時タイトルを聞く
-    public void TitleAsk(){
+    public void TitleAsk(final int flag){
         //テキスト入力を受け付けるビューを作成します。
         final EditText editView = new EditText(SongList.this);
         editView.setInputType(InputType.TYPE_CLASS_TEXT );
@@ -56,6 +55,15 @@ public class SongList extends AppCompatActivity {
         final AlertDialog dialog = b.show();
         Button buttonP = dialog.getButton(DialogInterface.BUTTON_POSITIVE);
         Button buttonN = dialog.getButton(DialogInterface.BUTTON_NEGATIVE);
+        final SQLiteDatabase db = helper.getReadableDatabase();
+        if(flag>=0){
+            String sql = "select name from note where id ="+ flag +";";
+            Cursor c = db.rawQuery(sql,null);
+            c.moveToFirst();
+            String title = c.getString(0);
+            editView.setText(title);
+        }
+
 
         // 通常のViewのように実装します。
         buttonP.setOnClickListener(new View.OnClickListener() {
@@ -66,24 +74,38 @@ public class SongList extends AppCompatActivity {
                 if (name.equals("")) {
                     Toast.makeText(SongList.this, "タイトルを正しく入力してください。", Toast.LENGTH_SHORT).show();
                 }else{
-                    SQLiteDatabase db = helper.getReadableDatabase();
+
                     String sql = "select * from note where name ='"+ name +"';";
                     Cursor c = db.rawQuery(sql,null);
                     boolean torf = c.moveToFirst();//cの中をすべて見終わるまでまでtrue
                     if(torf){
-                        Toast.makeText(SongList.this, "すでに存在するタイトルです。", Toast.LENGTH_SHORT).show();
+                        if(flag<0) {
+                            Toast.makeText(SongList.this, "すでに存在するタイトルです。", Toast.LENGTH_SHORT).show();
+                        }else{
+                            startActivity(getIntent());
+                            dialog.dismiss();
+                        }
                     }else {
-                        int recode=(int)DatabaseUtils.queryNumEntries(db, "note");
-                        String sql2 = "insert into note(name) values('" + name + "');";
-                        db.execSQL(sql2);
-                        dialog.dismiss();
-                        Intent dbIntent = new Intent(getApplication(),EditPage.class);
-                        dbIntent.putExtra("id", recode+1);
-                        startActivity(dbIntent);
+                        if(flag<0) {
+                            int recode = (int) DatabaseUtils.queryNumEntries(db, "note");
+                            String sql2 = "insert into note(name) values('" + name + "');";
+                            db.execSQL(sql2);
+                            dialog.dismiss();
+                            Intent dbIntent = new Intent(getApplication(), LyricsEdit.class);
+                            dbIntent.putExtra("id", recode + 1);
+                            startActivity(dbIntent);
+                        }else{
+
+                            String sql3 = "update note set name = '"+ name +"' where id = "+flag+";";
+                            db.execSQL(sql3);
+                            startActivity(getIntent());
+                            dialog.dismiss();
+                        }
                     }
                     c.close();
-                    db.close();
                 }
+
+                db.close();
             }
         });
 
@@ -124,7 +146,7 @@ public class SongList extends AppCompatActivity {
                 // アイテムクリック時の処理
                 switch (item.getItemId()) {
                     case R.id.action_new:
-                        TitleAsk();
+                        TitleAsk(-1);
                         Log.i("テスト  ", "新規作成");
                         return true;
                     case R.id.action_edit:
@@ -149,7 +171,7 @@ public class SongList extends AppCompatActivity {
 
 
         SQLiteDatabase db = helper.getReadableDatabase();
-        Cursor c = db.query("note", new String[] { "id", "name"}, null,null, null, null, null,null);
+        Cursor c = db.query("note", new String[] { "id", "name", "data"}, null,null, null, null, null,null);
         boolean mov = c.moveToFirst();
 
 
@@ -172,10 +194,12 @@ public class SongList extends AppCompatActivity {
                 Log.i("テスト  ", "更新なし"+id+"  "+i);
             }
             String str = c.getString(1);
+            String str2 = c.getString(2);
             String sid = String.valueOf(id);
             data = new HashMap<String, String>();
             data.put("title",str);
-            data.put("data", sid);
+            data.put("data", str2);
+            data.put("id", sid);
             retDataList.add(data);
             mov = c.moveToNext();
             i++;
@@ -184,8 +208,8 @@ public class SongList extends AppCompatActivity {
 
         // リストビューに渡すアダプタを生成します。
         SimpleAdapter adapter2 = new SimpleAdapter(this, retDataList,
-                R.layout.list_layout, new String[] { "title", "data" },
-                new int[] {R.id.item1, R.id.item2 });
+                R.layout.list_layout, new String[] { "title", "data","id" },
+                new int[] {R.id.item1, R.id.item2,R.id.item3 });
 
         listView.setAdapter(adapter2);
 
@@ -196,10 +220,58 @@ public class SongList extends AppCompatActivity {
                 Intent dbIntent = new Intent(getApplication(),EditPage.class);
                 dbIntent.putExtra("id", position+1);
                 startActivity(dbIntent);
-                Log.i("テスト  ", "押しました");
-
             }
         });
+
+
+
+        // リストビューのアイテムが長押しされた時に呼び出す。
+        listView.setOnItemLongClickListener(new AdapterView.OnItemLongClickListener() {
+            public boolean onItemLongClick(final AdapterView<?> parent, View view,
+                                           final int position, long id) {
+
+
+                final CharSequence[] shareItems = {"開く", "タイトル変更", "削除","キャンセル"};
+
+                AlertDialog.Builder builder = new AlertDialog.Builder(SongList.this);
+                builder.setItems(shareItems, new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface dialog, int item) {
+                        switch (item) {
+                            case 0:
+                                Log.i("テスト  ", "開く");
+                                Intent dbIntent = new Intent(getApplication(),EditPage.class);
+                                dbIntent.putExtra("id", position+1);
+                                startActivity(dbIntent);
+                                break;
+                            case 1:
+                                Log.i("テスト  ", "タイトル変更");
+                                TitleAsk(position+1);
+                                break;
+                            case 2:
+                                Log.i("テスト  ", "削除");
+                                SQLiteDatabase db2 = helper.getReadableDatabase();
+                                db2.delete("note", "id="+position+1,null);
+                                db2.close();
+                                finish();
+                                startActivity(getIntent());
+
+                                break;
+                            case 3:
+                                Log.i("テスト  ", "キャンセル");
+                                break;
+                        }
+                    }
+                });
+                AlertDialog shareAlert = builder.create();
+                shareAlert.show();
+
+
+
+                return true;
+            }
+        });
+
 
 
         c.close();
